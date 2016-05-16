@@ -2,13 +2,51 @@
 #include "Mesh.h"
 using VASemantic = VertexAttr::VASemantic;
 
+// 光栅化梯形
+struct Trapezoid{
+    Float4* lEdgeP1 ,lEdgeP2;
+    Float4* rEdgeP1 ,rEdgeP2;
+    float top, bottom;
+};
 
 // 用于剪裁后的顶点数据
 struct alignas(16) AssemblyVertices{
-    static constexpr int NUM    = 4;
-    static constexpr uint32_t STRIDE = VertexAttr::MAX_ATTRIBUTES*sizeof(Float4);
-    Float4 data[VertexAttr::MAX_ATTRIBUTES*NUM];
-    Float4* indexOf(int n){assert(n>=0 && n<NUM); return &(data[n*VertexAttr::MAX_ATTRIBUTES]);}
+    static constexpr int NUM    = 5;
+    Float4 new1[VASemantic::NUM_SEMANTICS];
+
+    ClonedVertex data[NUM];
+    int         order[NUM];
+    int           num;
+
+    Float4* indexOf(int n){assert(n>=0 && n<NUM); return &(data[n].coord);}
+    Float4* orderOf(int n){assert(n>=0 && n<NUM); return &(data[order[n]].coord);}
+    void setEmpty(void){num=0;for(int i=0;i<NUM;++i)order[i]=i;}
+    void clone(Float4*inptr){data[num].coord = *inptr; data[num].leftChannels=(float*)(inptr+1);++num;}
+    void newVertex1(int srcInx,uint32_t len){
+        auto& src = data[order[srcInx]];
+        new1[0] = src.coord;
+        memcpy(new1+1,src.leftChannels,len - sizeof(Float4));
+        data[3].coord = src.coord;
+        data[3].leftChannels = (float*)(new1+1);
+    }
+
+    void sort(int i1,int i2,int i3){order[0]=i1,order[1]=i2,order[2]=i3;}
+
+    void intersectionPoint(unsigned channels,int result,int inx1,int inx2 ,float znear){
+        Float4* r = orderOf(result);Float4* p1=orderOf(inx1);Float4* p2=orderOf(inx2);
+        float diffw = p2->w - p1->w;
+        if(diffw<LowEpsilon) return ;// avoid div by zero
+        float ratio = (znear - p1->w)/diffw;
+        *r = lerp(*p1,*p2,ratio);
+        float* fr  = data[order[result]].leftChannels;
+        float* fp1 = data[order[inx1]].leftChannels;
+        float* fp2 = data[order[inx2]].leftChannels;
+        for(unsigned i=4;i<channels;++i){
+            *fr = lerp(*fp1,*fp2,ratio);
+            ++fr;++fp1;++fp2;
+        }
+    }
+
 };
 
 thread_local AssemblyVertices assemblyV;
@@ -345,18 +383,95 @@ void PipeLine::drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth){
 }
 
 
+static inline bool equalf(float x,float y)
+{
+    return (x-y) < LowEpsilon;
+}
 
-void PipeLine::rasterizeTri(VertexTransform& vt,const Float4&f1,const Float4&f2,const Float4&f3){
+/*
+void trapezoid(VertexTransform& vt,Float4*f1,Float4*f2,Float4*f3){
+    if ( equalf( f1->y , f2->y ) ){
+        // 平顶三角  triangle down
+        // 2 ____1   1___2
+        //   \  |    |  /
+        //    \ |    | /
+        //     \|    |/
+        //      3    3
+        if ( f1->x > f2->x ) std::swap(f1,f2);
+        //     1___2
+        //     |  /
+        //     | /
+        //     |/
+        //     3
+        Trapezoid trap{f1,f3,f2,f3,f1->y,f3->y};
+        if(trap.top >= trap.bottom) return;
+        // FIXME
+    }
+    else if ( equalf( f2->y , f3->y) ){
+        // triangle up
+        //      1   1
+        //     /|   |\
+        //    / |   | \
+        // 2 /  |3  |3 \2
+        // ----    ----
+        if( f2->x > f3->x) std::swap(f2,f3);
+        //      1
+        //     /|
+        //    / |
+        // 2 /  |3
+        // ----
+        Trapezoid trap{f1,f2,f1,f3,f1->y,f3->y};
+        if(trap.top >= trap.bottom) return;
+        // FIXME
+    }
+    else{
+        //      1
+        //     /|
+        //    / |
+        // 2 /__|4
+        //   \  |
+        //    \ |
+        //     \|
+        //     3
+        Float4* f4 = assemblyV.indexOf(4);
+        assemblyV.memcpy(f2,4,vt.stride_);
+        Trapezoid trap1{f1,f2,f1,&f4,f1->y,f2->y};
+        Trapezoid trap2{f2,f3,&f4,f3,f2->y,f3->y};
+
+    }
+
+
+}
+*/
+
+void PipeLine::rasterizeTri(VertexTransform& vt,Float4*f1,Float4*f2,Float4*f3){
+    // keep this
+    //      1
+    //     /|
+    //    / |
+    // 2 /  |
+    //   \  |
+    //    \ |
+    //     \|
+    // 3
+    if( f1->y > f2->y ) std::swap(f1,f2);
+    if( f1->y > f3->y ) std::swap(f1,f3);
+    if( f2->y > f3->y ) std::swap(f2,f3);
+    // not triangle
+    if ((int)f1->y == (int)f2->y && (int)f1->y == (int)f3->y) return;
+    if ((int)f1->x == (int)f2->x && (int)f1->x == (int)f3->x) return;
+
+
     if(wireframeStateEnabled_){
-        drawLine(f1.x,f1.y,f2.x,f2.y,0);
-        drawLine(f2.x,f2.y,f3.x,f3.y,0);
-        drawLine(f3.x,f3.y,f1.x,f1.y,0);
-
+        drawLine(f1->x,f1->y,f2->x,f2->y,0);
+        drawLine(f2->x,f2->y,f3->x,f3->y,0);
+        drawLine(f3->x,f3->y,f1->x,f1->y,0);
         //DRAWLINE(0,0,800,600,0);
         //drawLine(0,600,800,0,0);
         //drawLine(0,300,800,300,0);
         //drawLine(400,0,400,600,0);
     }
+
 }
 
 void PipeLine::drawTriMesh(VertexTransform& vt){
@@ -368,68 +483,70 @@ void PipeLine::drawTriMesh(VertexTransform& vt){
         Float4* f2=i.f2_;
         Float4* f3=i.f3_;
 
-
         //back face cull
         if( cullStateEnabled_ && backFaceCull(*f1,*f2,*f3) )
-        continue;
+            continue;
 
+        assemblyV.setEmpty();
+        assemblyV.clone(f1);
+        assemblyV.clone(f2);
+        assemblyV.clone(f3);
 
-        memcpy((char*)assemblyV.data,f1,vt.stride_);
-        memcpy((char*)assemblyV.data+AssemblyVertices::STRIDE,f2,vt.stride_);
-        memcpy((char*)assemblyV.data+AssemblyVertices::STRIDE*2,f3,vt.stride_);
-        // 重新复制顶点指针
-        f1 = assemblyV.indexOf(0),f2 = assemblyV.indexOf(1),f3 = assemblyV.indexOf(2);
-        Float4* f4 = assemblyV.indexOf(3);
         // viewport clip
-        int ret = clipTriangleInClipSpace(vt,f1,f2,f3,f4);
+        int ret = clipTriangleInClipSpace(vt);
         if(ret == 3){
+            Float4* f0 = assemblyV.orderOf(0);
+            Float4* f1 = assemblyV.orderOf(1);
+            Float4* f2 = assemblyV.orderOf(2);
+            clipCoordToScreenCoord(*f0);
             clipCoordToScreenCoord(*f1);
             clipCoordToScreenCoord(*f2);
-            clipCoordToScreenCoord(*f3);
-            rasterizeTri(vt,*f1,*f2,*f3);
+            rasterizeTri(vt,f0,f1,f2);
         }
         else if(ret == 4){
+            Float4* f0 = assemblyV.orderOf(0);
+            Float4* f1 = assemblyV.orderOf(1);
+            Float4* f2 = assemblyV.orderOf(2);
+            Float4* f3 = assemblyV.indexOf(3);
+
+            clipCoordToScreenCoord(*f0);
             clipCoordToScreenCoord(*f1);
             clipCoordToScreenCoord(*f2);
             clipCoordToScreenCoord(*f3);
-            clipCoordToScreenCoord(*f4);
-            rasterizeTri(vt,*f1,*f2,*f3);
-            rasterizeTri(vt,*f4,*f1,*f3);
+
+            rasterizeTri(vt,f0,f1,f2);
+            rasterizeTri(vt,f3,f0,f2);
         }
         else // ret == 0
             continue;
     }
 }
 
-static inline void intersectionPoint(const VertexAttr* attr,void* result,void*v1,void*v2,float ratio){
-    float* r = (float*)result;float* fv1=(float*)v1;float* fv2=(float*)v2;
-    for(unsigned i=0;i<attr->channels();++i){
-        *r = lerp(*fv1,*fv2,ratio);
-        ++r;++fv1;++fv2;
-    }
-}
 
 
 
-int PipeLine::clipTriangleInClipSpace(VertexTransform& vt,Float4*v1,Float4*v2,Float4*v3,Float4*v4){
+int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
     static constexpr uint32_t GREATE_THAN_B = 1;
     static constexpr uint32_t LESS_THAN_B   = 2;
     static constexpr uint32_t BETWEEN_B     = 4;
 
 #define FRUSTUM_TEST(v,inx,code) do{ \
-        if(v->m[inx] > v->w)       code = GREATE_THAN_B;\
-        else if(v->m[inx] < -v->w) code = LESS_THAN_B;\
-        else                       code = BETWEEN_B;\
+        if(v.m[inx] > v.w)       code = GREATE_THAN_B;\
+        else if(v.m[inx] < -v.w) code = LESS_THAN_B;\
+        else                     code = BETWEEN_B;\
 }while(0);
 
 #define FRUSTUM_ZPLAN_TEST(v,znear,zfar,code) do{ \
-        if(v->w > zfar)       code = GREATE_THAN_B;\
-        else if(v->w < znear) code = LESS_THAN_B;\
+        if(v.w > zfar)       code = GREATE_THAN_B;\
+        else if(v.w < znear) code = LESS_THAN_B;\
         else                  code = BETWEEN_B;\
 }while(0);
 
 
     uint8_t vCode[3]={0,0,0};
+    const Float4& v1 = *assemblyV.indexOf(0);
+    const Float4& v2 = *assemblyV.indexOf(1);
+    const Float4& v3 = *assemblyV.indexOf(2);
 
     // x all out of frustum
     FRUSTUM_TEST(v1,0,vCode[0]);FRUSTUM_TEST(v2,0,vCode[1]);FRUSTUM_TEST(v3,0,vCode[2]);
@@ -468,71 +585,89 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt,Float4*v1,Float4*v2,Fl
     }
     else if((vCode[0] | vCode[1] | vCode[2]) & LESS_THAN_B){
 
-        // 处于近平面与远平面之间的定点个数
+        // 处于近平面与远平面之间顶点个数
         int inNum =
             (vCode[0]&BETWEEN_B ? 1 : 0) +
             (vCode[1]&BETWEEN_B ? 1 : 0) +
             (vCode[2]&BETWEEN_B ? 1 : 0) ;
+
         if(inNum == 1){
-            /*
+            // 1 sort
+            if (vCode[1] == BETWEEN_B) {
+                /*     1      in
+                //     /\
+                //    /  \
+                //   /____\   znear
+                //  /      \
+                // 2        0 out
+                */
+                assemblyV.sort(1,2,0);
+            }
+            if (vCode[2] == BETWEEN_B) {
+                /*     2      in
+                //     /\
+                //    /  \
+                //   /____\   znear
+                //  /      \
+                // 0        1 out
+                */
+                assemblyV.sort(2,0,1);
+            }
+            // else v0 between Znear Zfar
+            /*     0      in
             //     /\
             //    /  \
             //   /____\   znear
             //  /      \
+            // 1        2 out
             */
-            // 1 sort
-            if (vCode[1] == BETWEEN_B) {
-                Float4* vCross=v1;
-                v1 = v2; v2 = v3; v3 = vCross;
-            }
-            if (vCode[2] == BETWEEN_B) {
-                Float4* vCross=v1;
-                v1 = v3; v2 = vCross; v3 = v2; 
-            }
-            // else v0 between Znear Zfar
             //2 clip
-            float diffw =0,ratio=0;
-            diffw = v2->w - v1->w;
-            if(diffw<LowEpsilon) return 0;// avoid div by zero
-            ratio = (znear-v1->w)/diffw;
-            // 通过插值求交点保存在v2中
-            intersectionPoint(vt.vAttr_,v2,v1,v2,ratio);
-            diffw = (v3->w - v1->w);
-            if(diffw<LowEpsilon) return 0;// avoid div by zero
-            ratio =(znear-v1->w)/diffw;
-            intersectionPoint(vt.vAttr_,v3,v1,v3,ratio);
+            unsigned channels = vt.vAttr_->channels();
+            // 通过插值求交点保存在 index1 中 更新index1
+            assemblyV.intersectionPoint(channels,1,0,1,znear);
+            // 通过插值求交点保存在 index2 中 更新index2
+            assemblyV.intersectionPoint(channels,2,0,2,znear);
             return 3;
         }
         else if(inNum == 2){
-            //1          2
-            //3__________4
+            //1 sort outside vetex,keep v0 is in
+            if (vCode[1] == LESS_THAN_B) {
+            /*
+            //0__________2  out
             // \        /
-            //  \/_____/
+            //  \/_____/   znear
             //   \    /
-            //1 sort outside vetex,keep v1 is out
-            
-            if(vCode[1] == LESS_THAN_B)
-                std::swap(v1,v2);
-            if(vCode[2] == LESS_THAN_B)
-                std::swap(v1,v3);
-            std::swap(v2,v3);
-            //else v1 is outside
-            
+            //     1       in
+            */
+                assemblyV.sort(1,2,0);
+            }
+            if (vCode[2] == LESS_THAN_B) {
+            /*
+            //1__________0  out
+            // \        /
+            //  \/_____/   znear
+            //   \    /
+            //     2       in
+            */
+                assemblyV.sort(2,0,1);
+            }
+            //else
+            /*
+            //2__________1  out
+            // \        /
+            //  \/_____/   znear
+            //   \    /
+            //     0       in
+            */
+
             // add new Vertex
-            memcpy(v4,v1,vt.vAttr_->bytes());
-
+            assemblyV.newVertex1(0,vt.vAttr_->bytes());
             //2 clip
-            float diffw =0,ratio=0;
-            diffw = v2->w - v1->w;
-            if(diffw<LowEpsilon) return 0;// avoid div by zero
-            ratio = (znear-v1->w)/diffw;
-            intersectionPoint(vt.vAttr_,v1,v1,v2,ratio);
-            diffw = (v3->w - v4->w);
-            if(diffw<LowEpsilon) return 0;// avoid div by zero
-            ratio =(znear-v4->w)/diffw;
-            intersectionPoint(vt.vAttr_,v4,v4,v3,ratio);
-
-            // 2 triangle  1,2,3  1,extra,3
+            unsigned channels = vt.vAttr_->channels();
+            // 通过插值求交点保存在 index1 中 更新index1
+            assemblyV.intersectionPoint(channels,0,0,1,znear);
+            // 通过插值求交点保存在 index2 中 更新index2
+            assemblyV.intersectionPoint(channels,3,3,2,znear);
             return 4;
         }
     }

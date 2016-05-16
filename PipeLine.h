@@ -8,6 +8,10 @@
 #include "ResMemory.h"
 #include "VertexTransform.h"
 
+struct alignas(16) ClonedVertex{
+    Float4 coord;
+    float* leftChannels;
+};
 
 class PipeLine{
 public:
@@ -79,15 +83,15 @@ public:
     // 输入参数是剪裁空间坐标
     // 透视除法后视线与三角形夹角变为0度,平行
     bool backFaceCull(const Float4& clipP0,const Float4& clipP1,const Float4& clipP2){
-        Float3 v0v1 = Float3{clipP0.x,clipP0.y,clipP0.z} / clipP0.w - Float3{clipP1.x,clipP1.y,clipP1.z} / clipP1.w;
-		Float3 v1v2 = Float3{clipP1.x,clipP1.y,clipP1.z} / clipP1.w - Float3{clipP2.x,clipP2.y,clipP2.z} / clipP2.w;
-        v0v1.z = 0;
-		v1v2.z = 0;
-		Float3 normal = v0v1.cross(v1v2);
+        Float3 p0p1 = Float3{clipP0.x,clipP0.y,clipP0.z} / clipP0.w - Float3{clipP1.x,clipP1.y,clipP1.z} / clipP1.w;
+		Float3 p1p2 = Float3{clipP1.x,clipP1.y,clipP1.z} / clipP1.w - Float3{clipP2.x,clipP2.y,clipP2.z} / clipP2.w;
+        p0p1.z = 0;
+		p1p2.z = 0;
+		Float3 normal = p0p1.cross(p1p2);
         return normal.z  * cullSignAdjust_ <=0;
     }
 
-    // v1 equal to view Vector 三重积
+    // Vector 三重积
     // result = (E-P1) DOT (P2-P1) CROSS (P3-P1)
     //        = adjstV1 *
     // result > 0 front face
@@ -113,10 +117,10 @@ private:
     void drawTriMesh(VertexTransform&);
 
     void drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth=0);
-    int  clipTriangleInClipSpace(VertexTransform& vt,Float4*v1,Float4*v2,Float4*v3,Float4* v4);
+    int  clipTriangleInClipSpace(VertexTransform& vt);
     void clipCoordToScreenCoord(Float4& v) const ;
     bool clipLine(int &x1,int &y1,int &x2, int &y2);
-    void rasterizeTri(VertexTransform& t,const Float4&f1,const Float4&f2,const Float4&f3);
+    void rasterizeTri(VertexTransform& t,Float4*f1,Float4*f2,Float4*f3);
 
 
     void fillPoint(int x,int y,uint32_t color,uint32_t depth=0){
