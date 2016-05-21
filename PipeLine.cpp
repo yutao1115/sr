@@ -624,9 +624,9 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
             //2 clip
             unsigned channels = vt.vAttr_->channels();
             // 通过插值求交点保存在 index1 中 更新index1
-            assemblyV.intersectionPoint(channels,1,0,1,znear);
+            assemblyV.intersectionPoint(channels,1,1,0,znear);
             // 通过插值求交点保存在 index2 中 更新index2
-            assemblyV.intersectionPoint(channels,2,0,2,znear);
+            assemblyV.intersectionPoint(channels,2,2,0,znear);
             return 3;
         }
         else if(inNum == 2){
