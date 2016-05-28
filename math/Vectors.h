@@ -42,7 +42,7 @@ struct Float2 {
 	bool operator != ( const Float2 & p ) const {
 		return !(*this == p);
     }
-	float length() const {return sqrt( x * x + y * y );}
+	float length() const {return sqrtf( x * x + y * y );}
 	float lengthSquare() const {return x * x + y * y;}
 	Float2 & normalize() {float len=length(); if(len){float inv =1.0f/length();(*this) *= inv;}return (*this);}
 	void makeZero() {x = 0; y = 0;}

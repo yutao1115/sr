@@ -30,7 +30,7 @@ MeshPtr MeshBuilder::createMesh(uint32_t numOfVertices,
     //mesh->resState_ = Code::Initial;
     mesh->va_        = va_;
     mesh->primType_  = t;
-    mesh->vertexCnt_ = numOfVertices;
+    mesh->va_->allCnt_ = numOfVertices;
 
      
     if(numOfIndices){

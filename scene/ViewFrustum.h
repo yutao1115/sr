@@ -1,6 +1,6 @@
 #pragma once
 
-#include <math/Matrix.h>
+#include "Matrix.h"
 
 
 class  ViewFrustum
@@ -143,7 +143,7 @@ public:
     inline float getXMin() const{return frustum_[VF_XMIN];}
     inline float getXMax() const{return frustum_[VF_XMAX];}
 
-    // Access the projection matrices of the camera.These matrices map to
+    /* Access the projection matrices of the camera.These matrices map to
     // depths in the interval [-1,1].
     // The frustum values are N (near), F (far), B (bottom), T (top),
     // L (left), and R (right).  The various matrices are as follows,
@@ -178,7 +178,7 @@ public:
     //   | 0        0       -2/(F-N) -F+N/(F-N)   |  0   0   -2/(F-N)   -F+N/(F-N)  |
     //   | 0        0        0          1         |  0   0     0           1        |
     //   +-                                                                        -+
-    //
+    */
     inline const Matrix44 & getProjectionMatrix() const{return projectionMatrix_;}
     inline void setProjectionMatrix(Matrix44 const& projMatrix){projectionMatrix_ = projMatrix; updatePVMatrix();}
     inline const Matrix44 & getProjectionViewMatrix() const {return projectionViewMatrix_;}

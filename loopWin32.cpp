@@ -27,7 +27,7 @@ static inline void get_xy(LPARAM lParam, int *x, int *y)
 	*y = (short)((lParam>>16) & 0xffff);
 }
 
-static inline toWKey(WPARAM p){
+static inline int toWKey(WPARAM p){
     if(p == MK_CONTROL) return WindowInput::MODIFIER_CONTROL;
     else if(p == MK_SHIFT) return WindowInput::MODIFIER_SHIFT;
     else return WindowInput::MODIFIER_BUTTON;
@@ -102,7 +102,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 
-// 初始化窗口并设置标题
+/* init window and title */
 int srloop(int w, int h, const char *title)
 {
     screewidth=w,screeheight=h;

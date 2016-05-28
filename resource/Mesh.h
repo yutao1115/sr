@@ -3,6 +3,7 @@
 #include "ResMemory.h"
 #include "VertexAttr.h"
 #include "IndexAttr.h"
+#include "VertexIterator.h"
 #include <memory>
 
 struct Mesh : public ResNode {
@@ -16,8 +17,6 @@ struct Mesh : public ResNode {
     };
 
     unsigned  primType_   = NONE;
-    uint32_t  vertexCnt_  = 0;
-
 
     std::shared_ptr<VertexAttr>   va_;
     std::shared_ptr<IndexAttr>    vi_;
@@ -30,7 +29,7 @@ struct Mesh : public ResNode {
     }
 
     float* getCacheVerPtr(uint32_t index){
-        return getVertexPtr(index + vertexCnt_);
+        return getVertexPtr(index + va_->allCnt_);
     }
     void* getIndexPtr(void){
         return (void*)vertexBuffer_->extra();
@@ -45,7 +44,16 @@ struct Mesh : public ResNode {
     }
     
     size_t stride(void){return vertexBuffer_->stride();}
-
+    
+    VertexIterator::TriangleIterator triangleIterator(void){
+        return VertexIterator::TriangleIterator(getCacheVerPtr(0),getIndexPtr(),
+                     vi_?vi_->numOfIndices:0,vi_?vi_->inxSize():0,stride() ); 
+    }
+    
+    VertexIterator::SeqIterator seqIterator(void){
+        return VertexIterator::SeqIterator(getVertexPtr(0),getCacheVerPtr(0),va_->allCnt_,stride()); 
+    }
+    
     static std::shared_ptr<Mesh> resolveId(const Id& id);
 };
 

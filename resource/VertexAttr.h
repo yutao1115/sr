@@ -1,6 +1,6 @@
 #pragma once
 #include <array>
-
+#include <typeinfo>
 struct VertexAttr{
 // Vertex Attributes
     enum VASemantic {
@@ -41,7 +41,10 @@ struct VertexAttr{
         unsigned offset{0};
     };
     using Container = std::array<Attribute,MAX_ATTRIBUTES>;
-    inline bool add(VASemantic se,unsigned int size);
+    
+    template<class T>
+    inline bool add(VASemantic se);
+    
     unsigned int  bytes() const { return floatCnt_ * 4; }
     unsigned channels() const {return floatCnt_; }
     unsigned bytesOffset(VASemantic semantic){
@@ -57,28 +60,32 @@ struct VertexAttr{
     unsigned numOfAttrs_{0};
     unsigned floatCnt_{0};
     Container attributes_;
+    
+    //all vertex  count
+    unsigned allCnt_{0};
 };
 
 
-
-inline bool VertexAttr::add(VASemantic semantic,unsigned typesize){
+template<class T>
+inline bool VertexAttr::add(VASemantic semantic){
     if (0 <= numOfAttrs_ && numOfAttrs_ < MAX_ATTRIBUTES) {
 
         Attribute& attribute = attributes_[numOfAttrs_];
         attribute.semantic   = semantic;
-        attribute.typeSize   = (unsigned)typesize;
+        attribute.typeSize   = sizeof(T);
         attribute.offset     = size_;
         ++numOfAttrs_;
         size_ += attribute.typeSize;
 
         unsigned occupied = floatCnt_ * 4;
         if(size_ > occupied){
-            unsigned cnt16byte=typesize<=4?1:
-                ((typesize + (4-1)) & ~(4-1))/4;
+            unsigned cnt16byte=attribute.typeSize<=4?1:
+                ((attribute.typeSize + (4-1)) & ~(4-1))/4;
           floatCnt_ += cnt16byte;
         }
         return true;
     }
     return false;
 }
+
 

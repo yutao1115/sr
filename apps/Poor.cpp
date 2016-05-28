@@ -6,7 +6,7 @@
 #include "VertexAttr.h"
 #include "PipeLine.h"
 #include "Rotation.h"
-
+#include "AlgoManager.h"
 
 
 using VASemantic = VertexAttr::VASemantic;
@@ -14,6 +14,7 @@ static PipeLine *pipeline;
 
 int main()
 {
+
     WindowInput::OnInitialize = [](){
         Global::apps()->emplace_back(new Poor);
         auto& app = Global::apps()->back();
@@ -44,7 +45,8 @@ int main()
         case 'm': camera.rollCounterclockwise();break;
         case 'z': camera.forward();break;
         case 'x': camera.backward();break;
-        case 'f':{
+        case 'f':
+        case 'g':{
             static float roateAngle=0;
             AxisAngle4 a1 {{0.0f, 0.0f, 1.0f},roateAngle};
             AxisAngle4 a2 {{0.0f, 1.0f, 0.0f},roateAngle};
@@ -55,7 +57,8 @@ int main()
             //AxisAngle4 curY {{0,1,0,0},roateAngle};
             //AxisAngle4 curZ {{0,0,1,0},roateAngle};
             world.setRotation(m1*m2*m3);
-            roateAngle += PiOver180;
+            if(key=='f')    roateAngle += PiOver180;
+            else  roateAngle -= PiOver180;
             if(roateAngle>TwoPi) roateAngle=0;}break;
         case 'c': 
             pipeline->cullStateEnabled_  = !pipeline->cullStateEnabled_  ;
@@ -70,8 +73,11 @@ int main()
 }
 
 bool Poor::createWorld(void) {
-        MeshBuilder builder;
-    builder.addAttr(VASemantic::POSITION,sizeof(Float4));
+    MeshBuilder builder;
+    builder.addAttr<Float4>(VASemantic::POSITION);
+    
+    struct RGB{float R;float G;float B;};
+    builder.addAttr<RGB>(VASemantic::COLOR0);
     /*
     //World Vertices 114
     static float vertices[]={
@@ -191,12 +197,49 @@ bool Poor::createWorld(void) {
         0.353553 ,-0.146447 ,0.076120   ,1,
     };
     */
-    static MeshBuilder::MeshPtr mesh =  builder.createMesh(8,36);
- 
+    static MeshBuilder::MeshPtr mesh =  builder.createMesh(8,36);//(8,36)
+    AlgoManager<Interpolat>::instance().registerMesh(mesh.get());
+    AlgoManager<IScanline>::instance().registerMesh(mesh.get());
+    Interpolat* l  = AlgoManager<Interpolat>::instance().get(mesh.get());
+    IScanline* is  = AlgoManager<IScanline>::instance().get(mesh.get());
+    *l=[](void* result,void*v1,void*v2,float t){
+        float* r  = (float*)result; 
+        float* p1 = (float*)v1;
+        float* p2 = (float*)v2;
+        //R
+        *r = lerp(*p1, *p2, t); ++r;++p1;++p2;
+        //G
+        *r = lerp(*p1, *p2, t); ++r;++p1;++p2;
+        //B
+        *r = lerp(*p1, *p2, t);
+    };
+    is->lineInit_ = [](void* result,void*v1,void*v2,float t){
+        float* r  = (float*)result; 
+        float* lhs = (float*)v1;
+        float* rhs = (float*)v2;
+        *r  = (*rhs  - *lhs)  * t;++r;++rhs;++lhs;
+        *r  = (*rhs  - *lhs)  * t;++r;++rhs;++lhs;
+        *r  = (*rhs  - *lhs)  * t;
+    };
+    is->stepAdd_ = [](void* result,void*step){
+        float* r  = (float*)result; 
+        float* s = (float*)step;
+        *r  += *s;++r;++s;
+        *r  += *s;++r;++s;
+        *r  += *s;
+    };
+    is->pixelColor_=[](ClonedVertex& v,uint32_t*t){
+        int R = (int)(*v.leftChannels * 255.0f);
+		int G = (int)(*(v.leftChannels+1) * 255.0f);
+		int B = (int)(*(v.leftChannels+2) * 255.0f);
+		R = clamp(R, 0, 255);
+		G = clamp(G, 0, 255);
+		B = clamp(B, 0, 255);
+		*t = (R << 16) | (G << 8) | (B);
+    };
   
-   
  uint16_t indices[] = {  // Note that we start from 0!
-               // 前
+        // 前
         1, 3, 0,
         2, 3, 1,
 
@@ -221,81 +264,24 @@ bool Poor::createWorld(void) {
         4, 0, 7,
     };
     static float vvv[]={ 
-                           1, -1,  1, 1 ,  //0
-                          -1, -1,  1, 1 ,  //1
-                          -1,  1,  1, 1 ,  //2
-                          1,  1,  1, 1 ,   //3
-
-                          1, -1, -1, 1 ,  //4
-                          -1, -1, -1, 1 , //5
-                          -1,  1, -1, 1 , //6
-                          1,  1, -1, 1 }; //7
-    
+                           1, -1,  1, 1 ,1.0f, 0.2f, 0.2f, //0
+                          -1, -1,  1, 1 ,0.2f, 1.0f, 0.2f, //1
+                          -1,  1,  1, 1 ,0.2f, 0.2f, 1.0f, //2
+                           1,  1,  1, 1 ,1.0f, 0.2f, 1.0f, //3
+                           1, -1, -1, 1 ,1.0f, 1.0f, 0.2f, //4
+                          -1, -1, -1, 1 ,0.2f, 1.0f, 1.0f, //5
+                          -1,  1, -1, 1 ,1.0f, 0.3f, 0.3f, //6
+                           1,  1, -1, 1 ,0.2f, 1.0f, 0.3f, //7
+                        }; 
      
-      /*
-    uint16_t indices[] = {  // Note that we start from 0!
-        // 底
-        0, 1, 3,
-        0, 3, 2,
-
-        // 后
-        0, 2, 5,
-        0, 5, 4,
-
-        // 右
-        2, 3, 6,
-        2, 6, 5,
-
-        // 前
-        1, 7, 6,
-        1, 6, 3,
-        // 上
-        4, 5, 6,
-        4, 6, 7,
-
-        // 左
-        0, 4, 7,
-        0, 7, 1,
-    };
-    static float vvv[]={
-        -1.000000, -1.000000, 0.000000,1,
-        -1.000000, -1.000000, 2.000000,1,
-        1.000000 ,-1.000000 , 0.000000,1,
-        1.000000 ,-1.000000 , 2.000000,1,
-        -1.00000 ,1.000000  , 0.000000,1,
-        1.000000 ,1.000000  , 0.000000,1,
-        1.000000 ,1.000000  , 2.000000,1,
-        -1.000000, 1.000000 , 2.000000,1,
-
-    };
-      */
-    memcpy(mesh->getVertexPtr(0),vvv,sizeof(vvv)); 
+    MeshVertexSeqIn mva(*mesh);
+    mva.streamCopy(vvv,sizeof(vvv));
     memcpy(mesh->getIndexPtr16(),indices,36*sizeof(uint16_t));
-    
-    /*
-    builder.addAttr(VASemantic::COLOR0,sizeof(Float3));
-    static MeshBuilder::MeshPtr mesh =  builder.createMesh(4,6);
-    MeshVertexAppend mva(*mesh);
-    mva.append(Float4{0.5f,0.5f, 0.0f,1},Float3{6,7,8});
-    mva.append(Float4{0.5f, -0.5f, 0.0f,1},Float3{1,1,1});
-    mva.append(Float4{-0.5f, -0.5f, 0.0f,1},Float3{2,2,2});
-    mva.append(Float4{-0.5f,  0.5f, 0.0f,1},Float3{4,4,4});
-    memcpy(mesh->getIndexPtr16(),indices,6*sizeof(uint16_t));
-    */
-    /*
-    static MeshBuilder::MeshPtr mesh =  builder.createMesh(3);
-    MeshVertexAppend mva(*mesh);
-    meshAssign(*mesh,2,Float4{0.5f,0.5f,0,1},Float3{6,7,8});
-    meshAssign(*mesh,1,Float4{ 0.5f,-0.5f,0,1},Float3{1,1,1});
-    meshAssign(*mesh,0,Float4{-0.5f,0.5f,0,1},Float3{3,3,3});
-    */
-    //meshAssign(*mesh,2,Float4{-5.0f,-5.0f,0,1},Float3{6,7,8});
-    //meshAssign(*mesh,1,Float4{ 5.0f,-5.0f,0,1},Float3{1,1,1});
-    //meshAssign(*mesh,0,Float4{ 0.0f, 5.0f,0,1},Float3{3,3,3});
-    //size_t stri = mesh->stride();
+
 
     Global::screenBuf()->init(800,600);
     pipeline = new PipeLine(*Global::screenBuf(),4);
+    pipeline->setRasterizeAlgo(RasAlgo::SCANLINE_ALGO);
     pipeline->cullStateEnabled_ = false;
     //pipeline->setCullState(PipeLine::FT_CW,PipeLine::CT_BACK);
     //pipeline->getTransform().setTranslation(2.0f, 0.0f, 0.0f);
@@ -307,21 +293,21 @@ bool Poor::createWorld(void) {
     Float4 target{0,0,0,1};
     Float4 up{0,1,0,1};
     pipeline->getCamera().lookAt(eye,target,up);
-    //pipeline->getCamera().finish();
     pipeline->attachMesh(mesh.get());
     pipeline->setVertexShader([]
-    (VertexTransform& vt,const PipeLine::Uniforms* u,PipeLine::Registers&)
+    (Mesh* m,const PipeLine::Uniforms* u,PipeLine::Registers&)
     {
-        Global::screenBuf()->clear();
-        memcpy(vt.outBuf_,vt.inBuf_,vt.stride_*vt.vertexCnt_);
-        VertexTransform::VIterator allVertex(vt);
-        for(auto& i : allVertex)
-           i = u->wpvMatrix_ * i;
+        VertexIterator::SeqIterator allVertex(m->seqIterator());
+        for(auto& i : allVertex){
+           *i.dst = u->wpvMatrix_ * (*i.src);
+           memcpy(i.dst + 1, i.src + 1, sizeof(RGB));
+        }
     });
     return true;
 }
 
 void Poor::renderWorld(void) {
+    Global::screenBuf()->clear();
     pipeline->outlet();
 }
 

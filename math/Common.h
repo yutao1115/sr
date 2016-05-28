@@ -14,7 +14,7 @@ const float _1OverPi = 1.0f / Pi;
 const float _1Over2Pi = 1.0f / TwoPi;
 const float PiOver180 = Pi / 180.0f;
 const float _180OverPi = 180.0f / Pi;
- 
+
 // Conversions between degrees and radians.
 const float _DegToRad = 0.0174532925199433f;  // pi / 180.0
 const float _RadToDeg = 57.295779513082321f;  // 180.0 / pi
@@ -119,7 +119,8 @@ T lerp(const T &res,const T &rhs, float factor) {
     return res + (rhs - res) * factor;// a * (1.f - ratio) + b * ratio;
 };
 
-// 快速线性插值
+/* 快速线性插值 
+*/
 template<class T>
 T fastLerp(const T& a, const T& b, float ratio, float inv_ratio)
 {
@@ -128,7 +129,8 @@ T fastLerp(const T& a, const T& b, float ratio, float inv_ratio)
 
 
 
-// 透视矫正插值
+/* 透视矫正插值 
+*/
 template<class T>
 inline T wCorrectLerp(const T& a, const T& b, float ratio, float wa, float wb) {
     return (a * wa * (1.f - ratio) + b * wb * ratio) / ( wb * ratio + wa * (1.f - ratio) );

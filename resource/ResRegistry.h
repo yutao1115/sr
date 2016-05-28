@@ -9,6 +9,10 @@
 class ResRegistry{
 public:
     static ResRegistry& instance(void);
+    
+    ResRegistry( const ResRegistry& ) = delete;
+    ResRegistry& operator=( const ResRegistry& ) = delete;
+    
     using Functor= std::function<void(const Id&)>;
     struct CallbackEntry{
         Functor factoryFunc;
@@ -33,7 +37,7 @@ public:
 
 
 private:
-
+    ResRegistry(){}
     struct Entry {
         Entry(const Id& id,const Locator& loc)
         :id_(id),locator_(loc),pCall_(nullptr){}

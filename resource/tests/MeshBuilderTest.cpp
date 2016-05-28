@@ -8,10 +8,10 @@ using namespace std;
 using VASemantic = VertexAttr::VASemantic;
 TEST(MeshBuilderTest,position){
     MeshBuilder builder;
-    builder.addAttr(VASemantic::COLOR0,sizeof(double));
-    builder.addAttr(VASemantic::POSITION,sizeof(Float4));
-    builder.addAttr(VASemantic::PSIZE,sizeof(double));
-    builder.addAttr(VASemantic::FOG,27);
+    builder.addAttr<double>(VASemantic::COLOR0);
+    builder.addAttr<Float4>(VASemantic::POSITION);
+    builder.addAttr<double>(VASemantic::PSIZE);
+    builder.addAttr<double>(VASemantic::FOG);
     auto mesh = builder.createMesh(5);
     cout<<" float4:"<<sizeof(Float4)
         <<" float3:"<<sizeof(Float3)
@@ -27,8 +27,8 @@ TEST(MeshBuilderTest,position){
     cout<<e-s<<endl;
 
     builder.redefine();
-    builder.addAttr(VASemantic::POSITION,sizeof(Float4));
-    builder.addAttr(VASemantic::COLOR0,sizeof(Float3));
+    builder.addAttr<Float4>(VASemantic::POSITION);
+    builder.addAttr<Float3>(VASemantic::COLOR0);
 
 
     mesh =  builder.createMesh(4);

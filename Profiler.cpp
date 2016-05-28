@@ -14,7 +14,7 @@
 
 #include "Profiler.h"
   
-#ifdef WIN32   // Windows system specific
+#ifdef _WIN32   // Windows system specific
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else          // Unix based system specific
@@ -28,7 +28,7 @@ Profiler::Profiler()
     :startTimeInMicroSec(0),endTimeInMicroSec(0),
      stopped(0),startCount{0},endCount{0}
 {
-#ifdef WIN32
+#ifdef _WIN32
     QueryPerformanceFrequency((PLARGE_INTEGER)&frequency);
 #endif
 }
@@ -41,8 +41,8 @@ Profiler::Profiler()
 void Profiler::start()
 {
     stopped = 0; // reset stop flag
-#ifdef WIN32
-    QueryPerformanceCounter(&startCount);
+#ifdef _WIN32
+    QueryPerformanceCounter((PLARGE_INTEGER)&startCount);
 #else
     gettimeofday((timeval*)&startCount, NULL);
 #endif
@@ -57,7 +57,7 @@ void Profiler::start()
 void Profiler::stop()
 {
     stopped = 1; // set timer stopped flag
-#ifdef WIN32
+#ifdef _WIN32
     QueryPerformanceCounter((PLARGE_INTEGER)&endCount);
 #else
     gettimeofday((timeval*)&endCount, NULL);
@@ -72,7 +72,7 @@ void Profiler::stop()
 ///////////////////////////////////////////////////////////////////////////////
 double Profiler::getElapsedInMicroSec()
 {
-#ifdef WIN32
+#ifdef _WIN32
     if(!stopped)
         QueryPerformanceCounter((PLARGE_INTEGER)&endCount);
 

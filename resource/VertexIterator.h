@@ -6,25 +6,29 @@
 
 namespace VertexIterator{
 
-    class SeqIterator : public std::iterator<std::input_iterator_tag, Float4>
+    struct Vertex{
+        Float4*  src;//source
+        Float4*  dst;//destination  
+    };
+    class SeqIterator : public std::iterator<std::input_iterator_tag, Vertex>
     {
         size_t   stride_;
-        Float4*  p_;
+        Vertex   v_;
         Float4*  end_;
     public:
-        SeqIterator() :vertexCnt_(0),stride_(0),p_(nullptr),end_(nullptr) {} 
+        SeqIterator() :stride_(0),v_{nullptr,nullptr},end_(nullptr) {} 
         
-        SeqIterator(void*ptr,uint32_t vertexCnt,size_t stride) :
-            stride_(stride),
-            p_((Float4*)ptr),
-            end_( (Float4*)((char*)p_+vertexCnt*stride_)){}
+        SeqIterator(void* src,void*dst,uint32_t vertexCnt,size_t stride) :
+            stride_(stride),v_{(Float4*)src,(Float4*)dst},
+            end_( (Float4*)((char*)v_.src+vertexCnt*stride_)){}
                       
-        SeqIterator(const SeqIterator& rhs) : vt_(rhs.vt_),p_( rhs.p_),end_(rhs.end_){}
+        SeqIterator(const SeqIterator& rhs) : stride_(rhs.stride_),v_(rhs.v_),end_(rhs.end_){}
         
         SeqIterator& operator++() { 
-            if(p_ != nullptr ) {
-                p_=(Float4*)((char*)p_+stride_); 
-                if(p_==end_) p_=nullptr;
+            if(v_.src != nullptr ) {
+                v_.src=(Float4*)((char*)v_.src+stride_); 
+                v_.dst=(Float4*)((char*)v_.dst+stride_); 
+                if(v_.src==end_) v_.src=nullptr;
             }         
             return *this; 
         }
@@ -33,14 +37,14 @@ namespace VertexIterator{
         
         bool operator==(const SeqIterator& rhs) 
         {
-           return p_ == rhs.p_;
+           return v_.src == rhs.v_.src;
         }
         bool operator!=(const SeqIterator& rhs) 
         {
-           return p_ != rhs.p_;
+           return v_.src != rhs.v_.src;
         }
-        Float4& operator* () {return *p_;}
-        Float4* operator->() {return p_;}
+        Vertex& operator* () {return v_;}
+        Vertex* operator->() {return &v_;}
         
         SeqIterator begin(){return SeqIterator(*this);}
         SeqIterator end(){return SeqIterator{};}
@@ -86,38 +90,37 @@ namespace VertexIterator{
                 tri_.f3_ = (Float4*)((uint8_t*)vBufPtr_ + i3*vstride_);
             }
             else{
-                if(index_ >= vt_.inxCnt_) {
+                if(index_ >= inxCnt_) {
                     index_ = 0xFFFFFFFF;
                     return ;
                 }
-                tri_.f1_ = (Float4*)((uint8_t*)vt_.vBufPtr_ + index_*vstride_);
+                tri_.f1_ = (Float4*)((uint8_t*)vBufPtr_ + index_*vstride_);
                 tri_.f2_ = (Float4*)((uint8_t*)tri_.f1_         + vstride_       );
                 tri_.f3_ = (Float4*)((uint8_t*)tri_.f2_         + vstride_       );
             }
         }
     public:
         TriangleIterator() 
-        :  vBufPtr_(nullptr),
+        :  index_(0xFFFFFFFF),
+           vBufPtr_(nullptr),
            inxBufPtr_(nullptr),
            inxCnt_(0),
            inxStride_(0),
-           vstride_(0),index_(0xFFFFFFFF){}
+           vstride_(0){}
         
         TriangleIterator(void* vBufPtr,void* inxBufPtr,const uint32_t inxCnt,const size_t inxStride,const size_t vstride)
-        :  vBufPtr_(vBufPtr),
+        :  index_(0),vBufPtr_(vBufPtr),
            inxBufPtr_(inxBufPtr),
            inxCnt_(inxCnt),
            inxStride_(inxStride),
-           vstride_(vstride),index_(0){extract();}
+           vstride_(vstride){extract();}
                       
         TriangleIterator(const TriangleIterator& rhs) 
-        :  vBufPtr_(rhs.vBufPtr_),
+        :  tri_(rhs.tri_),index_(rhs.index_),vBufPtr_(rhs.vBufPtr_),
            inxBufPtr_(rhs.inxBufPtr_),
            inxCnt_(rhs.inxCnt_),
            inxStride_(rhs.inxStride_),
-           vstride_(rhs.vstride_),
-           tri_(rhs.tri_),
-           index_(rhs.index_)
+           vstride_(rhs.vstride_)
         {}
         
         TriangleIterator& operator++() {

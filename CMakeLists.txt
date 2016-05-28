@@ -54,6 +54,7 @@ set(base_SRCS
   scene/CameraRig.cpp
   scene/ViewFrustum.cpp
   scene/Transform.cpp
+  resource/AlgoManager.cpp
   resource/ResourceState.cpp
   resource/ResRegistry.cpp
   resource/Mesh.cpp

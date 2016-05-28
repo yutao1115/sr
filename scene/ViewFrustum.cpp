@@ -1,4 +1,4 @@
-#include "scene/ViewFrustum.h"
+#include "ViewFrustum.h"
 
 
 ViewFrustum::ViewFrustum(bool isPerspective)

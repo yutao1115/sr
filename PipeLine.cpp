@@ -1,55 +1,9 @@
 #include "PipeLine.h"
 #include "Mesh.h"
+#include "AlgoManager.h"
 using VASemantic = VertexAttr::VASemantic;
 
-// 光栅化梯形
-struct Trapezoid{
-    Float4* lEdgeP1 ,lEdgeP2;
-    Float4* rEdgeP1 ,rEdgeP2;
-    float top, bottom;
-};
-
-// 用于剪裁后的顶点数据
-struct alignas(16) AssemblyVertices{
-    static constexpr int NUM    = 5;
-    Float4 new1[VASemantic::NUM_SEMANTICS];
-
-    ClonedVertex data[NUM];
-    int         order[NUM];
-    int           num;
-
-    Float4* indexOf(int n){assert(n>=0 && n<NUM); return &(data[n].coord);}
-    Float4* orderOf(int n){assert(n>=0 && n<NUM); return &(data[order[n]].coord);}
-    void setEmpty(void){num=0;for(int i=0;i<NUM;++i)order[i]=i;}
-    void clone(Float4*inptr){data[num].coord = *inptr; data[num].leftChannels=(float*)(inptr+1);++num;}
-    void newVertex1(int srcInx,uint32_t len){
-        auto& src = data[order[srcInx]];
-        new1[0] = src.coord;
-        memcpy(new1+1,src.leftChannels,len - sizeof(Float4));
-        data[3].coord = src.coord;
-        data[3].leftChannels = (float*)(new1+1);
-    }
-
-    void sort(int i1,int i2,int i3){order[0]=i1,order[1]=i2,order[2]=i3;}
-
-    void intersectionPoint(unsigned channels,int result,int inx1,int inx2 ,float znear){
-        Float4* r = orderOf(result);Float4* p1=orderOf(inx1);Float4* p2=orderOf(inx2);
-        float diffw = p2->w - p1->w;
-        if(diffw<LowEpsilon) return ;// avoid div by zero
-        float ratio = (znear - p1->w)/diffw;
-        *r = lerp(*p1,*p2,ratio);
-        float* fr  = data[order[result]].leftChannels;
-        float* fp1 = data[order[inx1]].leftChannels;
-        float* fp2 = data[order[inx2]].leftChannels;
-        for(unsigned i=4;i<channels;++i){
-            *fr = lerp(*fp1,*fp2,ratio);
-            ++fr;++fp1;++fp2;
-        }
-    }
-
-};
-
-thread_local AssemblyVertices assemblyV;
+thread_local VerticesAssembly assemblyV;
 
 /////////////////////////////////////////////////
 // viewport transform                          //
@@ -69,10 +23,10 @@ void PipeLine::setViewPort(int w,int h,int srcx/*0*/,int srcy/*0*/){
     float halfw = w *0.5f-0.5f;
     float halfh = h *0.5f-0.5f;
     uniforms_->viewPort_=Matrix44{
-        halfw,  0  ,  0  , srcx+halfw,
-        0,     -halfh, 0  , srcy+halfh,
-        0,      0  ,  1  ,    0     ,
-        0,      0  ,  0  ,    1      };
+        halfw,  0  ,  0   , srcx+halfw,
+        0,     -halfh,0   , srcy+halfh,
+        0,      0  ,  1   ,    0     ,
+        0,      0  ,  0   ,    1      };
 }
 
 
@@ -83,6 +37,7 @@ PipeLine::PipeLine(FrameBuffer& fbo,int regsN)
      viewfrustum_(),
      cam_(viewfrustum_,0.1,0.01)
 {
+
     setCullState(FT_CCW,CT_BACK);
     viewfrustum_.setFrustum(90.0f,fbo.width(),fbo.height(),5,500);
 
@@ -98,6 +53,7 @@ PipeLine::PipeLine(FrameBuffer& fbo,int regsN)
     //drawFunction_[PT::TRISTRIP]=
 
     drawFunction_[PT::TRIMESH] = &PipeLine::drawTriMesh;
+    rasterAlgo_[RasAlgo::SCANLINE_ALGO] = &PipeLine::scanlineAlgo;
 }
 
 bool PipeLine::clipLine(int &x1,int &y1,int &x2, int &y2) {
@@ -337,7 +293,9 @@ bool PipeLine::clipLine(int &x1,int &y1,int &x2, int &y2) {
 void PipeLine::drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth){
 
     if( clipLine(x1,y1,x2,y2) == false)
-        return;
+		return;
+        
+
 
     int x, y, rem = 0;
     if (x1 == x2 && y1 == y2) {
@@ -352,13 +310,14 @@ void PipeLine::drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth){
         fillPoint( x2, y2, c,depth);
     }else {
         // Bresenham line
-        int dx = (x1 < x2)? x2 - x1 : x1 - x2;
-        int dy = (y1 < y2)? y2 - y1 : y1 - y2;
+        int dx = (x1 < x2)? (x2 - x1) : (x1 - x2);
+        int dy = (y1 < y2)? (y2 - y1) : (y1 - y2);
         if (dx >= dy) {
-            // x axis 每次加1 y + dy 如果大于 dx需要矫正
-            if (x2 < x1) std::swap(x1,x2),std::swap(y1,y2);
+            /* x axis 每次加1 y + dy 如果大于 dx需要矫正
+			*/
+			if (x2 < x1) { std::swap(x1, x2);std::swap(y1, y2); }
             int delta = (y2 >= y1)? 1 : -1;
-            for (x = x1, y = y1; x <= x2; x++/*x 每次加1 */) {
+            for (x = x1, y = y1; x <= x2; x++/* x 每次加1 */) {
                 rem += dy;
                 if (rem >= dx) {
                     rem -= dx;
@@ -383,48 +342,65 @@ void PipeLine::drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth){
 }
 
 
-static inline bool equalf(float x,float y)
-{
-    return (x-y) < LowEpsilon;
+void PipeLine::scanlineAlgo(const RasTrapezoid* trap){
+    IScanline*  i = AlgoManager<IScanline>::instance().get(curMesh_);
+    Interpolat* l = AlgoManager<Interpolat>::instance().get(curMesh_);
+    assert(i != nullptr);
+    ScanlineAlgo{ *trap,fbo_,*i,*l };
 }
 
-/*
-void trapezoid(VertexTransform& vt,Float4*f1,Float4*f2,Float4*f3){
-    if ( equalf( f1->y , f2->y ) ){
+void PipeLine::renderTrapezoid(const RasTrapezoid* trap){
+    //pShader_(uniforms_,registers_,assemblyV,trap,fbo_);
+    (this->*rasterAlgo_[algo_])(trap);
+}
+
+void PipeLine::trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3,
+                                bool recursive/*=false*/){
+
+    if ( equal( f1->coord.y , f2->coord.y ) ){
+        /*
         // 平顶三角  triangle down
         // 2 ____1   1___2
         //   \  |    |  /
         //    \ |    | /
         //     \|    |/
         //      3    3
-        if ( f1->x > f2->x ) std::swap(f1,f2);
+        */
+        if ( f1->coord.x > f2->coord.x ) std::swap(f1,f2);
+        /*
         //     1___2
         //     |  /
         //     | /
         //     |/
         //     3
-        Trapezoid trap{f1,f3,f2,f3,f1->y,f3->y};
+        */
+        RasTrapezoid trap{f1,f3,f2,f3,f1->coord.y,f3->coord.y};
         if(trap.top >= trap.bottom) return;
-        // FIXME
+        renderTrapezoid(&trap);
     }
-    else if ( equalf( f2->y , f3->y) ){
+    else if ( equal( f2->coord.y , f3->coord.y) ){
+        /*
         // triangle up
         //      1   1
         //     /|   |\
         //    / |   | \
         // 2 /  |3  |3 \2
         // ----    ----
-        if( f2->x > f3->x) std::swap(f2,f3);
+        */
+        if( f2->coord.x > f3->coord.x) std::swap(f2,f3);
+        /*
         //      1
         //     /|
         //    / |
         // 2 /  |3
-        // ----
-        Trapezoid trap{f1,f2,f1,f3,f1->y,f3->y};
+        //  ----
+        */
+        RasTrapezoid trap{f1,f2,f1,f3,f1->coord.y,f3->coord.y};
         if(trap.top >= trap.bottom) return;
-        // FIXME
+        renderTrapezoid(&trap);
     }
     else{
+        /*
         //      1
         //     /|
         //    / |
@@ -433,19 +409,30 @@ void trapezoid(VertexTransform& vt,Float4*f1,Float4*f2,Float4*f3){
         //    \ |
         //     \|
         //     3
-        Float4* f4 = assemblyV.indexOf(4);
-        assemblyV.memcpy(f2,4,vt.stride_);
-        Trapezoid trap1{f1,f2,f1,&f4,f1->y,f2->y};
-        Trapezoid trap2{f2,f3,&f4,f3,f2->y,f3->y};
-
+        */
+        // 精度问题到达这里 ???
+        if(recursive) return;
+        assemblyV.newVertex2(f2);
+        ClonedVertex* f4 = assemblyV.orderV(VerticesAssembly::TRAPEZOIDCLIP);
+        float ratio = (f2->coord.y - f1->coord.y) / (f3->coord.y - f1->coord.y);
+        assemblyV.intersectionPoint(*f4,*f1,*f3,ratio);
+        trapezoidization(f1,f2,f4,true);
+        trapezoidization(f2,f4,f3,true);
     }
-
-
 }
-*/
 
-void PipeLine::rasterizeTri(VertexTransform& vt,Float4*f1,Float4*f2,Float4*f3){
-    // keep this
+void PipeLine::rasterizeTri(int i1,int i2,int i3){
+
+    ClonedVertex* c1 = assemblyV.orderV(i1);
+    ClonedVertex* c2 = assemblyV.orderV(i2);
+    ClonedVertex* c3 = assemblyV.orderV(i3);
+    toScreen(c1);
+    toScreen(c2);
+    toScreen(c3);
+
+
+    /*
+    // sort , like this
     //      1
     //     /|
     //    / |
@@ -454,30 +441,29 @@ void PipeLine::rasterizeTri(VertexTransform& vt,Float4*f1,Float4*f2,Float4*f3){
     //    \ |
     //     \|
     // 3
-    if( f1->y > f2->y ) std::swap(f1,f2);
-    if( f1->y > f3->y ) std::swap(f1,f3);
-    if( f2->y > f3->y ) std::swap(f2,f3);
+    */
+    if( c1->coord.y > c2->coord.y ) std::swap(c1,c2);
+    if( c1->coord.y > c3->coord.y ) std::swap(c1,c3);
+    if( c2->coord.y > c3->coord.y ) std::swap(c2,c3);
     // not triangle
-    if ((int)f1->y == (int)f2->y && (int)f1->y == (int)f3->y) return;
-    if ((int)f1->x == (int)f2->x && (int)f1->x == (int)f3->x) return;
+    if ((int)c1->coord.y == (int)c2->coord.y && (int)c1->coord.y == (int)c3->coord.y) return;
+    if ((int)c1->coord.x == (int)c2->coord.x && (int)c1->coord.x == (int)c3->coord.x) return;
 
-
-    if(wireframeStateEnabled_){
-        drawLine(f1->x,f1->y,f2->x,f2->y,0);
-        drawLine(f2->x,f2->y,f3->x,f3->y,0);
-        drawLine(f3->x,f3->y,f1->x,f1->y,0);
-        //DRAWLINE(0,0,800,600,0);
-        //drawLine(0,600,800,0,0);
-        //drawLine(0,300,800,300,0);
-        //drawLine(400,0,400,600,0);
+    if(algo_ == WIREFRAME_ALGO){
+        drawLine(c1->coord.x,c1->coord.y,c2->coord.x,c2->coord.y,0);
+        drawLine(c2->coord.x,c2->coord.y,c3->coord.x,c3->coord.y,0);
+        drawLine(c3->coord.x,c3->coord.y,c1->coord.x,c1->coord.y,0);
+    }
+    else{
+        trapezoidization(c1,c2,c3);
     }
 
 }
 
-void PipeLine::drawTriMesh(VertexTransform& vt){
+void PipeLine::drawTriMesh(void){
     //FIXME visual culling
 
-    VertexTransform::TriangleIterator allTriangles(vt);
+    VertexIterator::TriangleIterator allTriangles(curMesh_->triangleIterator());
     for(auto& i:allTriangles ){
         Float4* f1=i.f1_;
         Float4* f2=i.f2_;
@@ -487,35 +473,19 @@ void PipeLine::drawTriMesh(VertexTransform& vt){
         if( cullStateEnabled_ && backFaceCull(*f1,*f2,*f3) )
             continue;
 
-        assemblyV.setEmpty();
-        assemblyV.clone(f1);
-        assemblyV.clone(f2);
-        assemblyV.clone(f3);
+        assemblyV.init(curMesh_);
+        assemblyV.clone(f1,0);
+        assemblyV.clone(f2,1);
+        assemblyV.clone(f3,2);
 
         // viewport clip
-        int ret = clipTriangleInClipSpace(vt);
+        int ret = clipTriangleInClipSpace();
         if(ret == 3){
-            Float4* f0 = assemblyV.orderOf(0);
-            Float4* f1 = assemblyV.orderOf(1);
-            Float4* f2 = assemblyV.orderOf(2);
-            clipCoordToScreenCoord(*f0);
-            clipCoordToScreenCoord(*f1);
-            clipCoordToScreenCoord(*f2);
-            rasterizeTri(vt,f0,f1,f2);
+            rasterizeTri(0,1,2);
         }
         else if(ret == 4){
-            Float4* f0 = assemblyV.orderOf(0);
-            Float4* f1 = assemblyV.orderOf(1);
-            Float4* f2 = assemblyV.orderOf(2);
-            Float4* f3 = assemblyV.indexOf(3);
-
-            clipCoordToScreenCoord(*f0);
-            clipCoordToScreenCoord(*f1);
-            clipCoordToScreenCoord(*f2);
-            clipCoordToScreenCoord(*f3);
-
-            rasterizeTri(vt,f0,f1,f2);
-            rasterizeTri(vt,f3,f0,f2);
+            rasterizeTri(0,1,2);
+            rasterizeTri(3,0,2);
         }
         else // ret == 0
             continue;
@@ -524,16 +494,10 @@ void PipeLine::drawTriMesh(VertexTransform& vt){
 
 
 
-
-int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
-    static constexpr uint32_t GREATE_THAN_B = 1;
-    static constexpr uint32_t LESS_THAN_B   = 2;
-    static constexpr uint32_t BETWEEN_B     = 4;
-
 #define FRUSTUM_TEST(v,inx,code) do{ \
         if(v.m[inx] > v.w)       code = GREATE_THAN_B;\
         else if(v.m[inx] < -v.w) code = LESS_THAN_B;\
-        else                     code = BETWEEN_B;\
+        else                       code = BETWEEN_B;\
 }while(0);
 
 #define FRUSTUM_ZPLAN_TEST(v,znear,zfar,code) do{ \
@@ -541,6 +505,13 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
         else if(v.w < znear) code = LESS_THAN_B;\
         else                  code = BETWEEN_B;\
 }while(0);
+
+int PipeLine::clipTriangleInClipSpace(void){
+    static constexpr uint32_t GREATE_THAN_B = 1;
+    static constexpr uint32_t LESS_THAN_B   = 2;
+    static constexpr uint32_t BETWEEN_B     = 4;
+
+
 
 
     uint8_t vCode[3]={0,0,0};
@@ -585,11 +556,12 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
     }
     else if((vCode[0] | vCode[1] | vCode[2]) & LESS_THAN_B){
 
-        // 处于近平面与远平面之间顶点个数
-        int inNum =
-            (vCode[0]&BETWEEN_B ? 1 : 0) +
-            (vCode[1]&BETWEEN_B ? 1 : 0) +
-            (vCode[2]&BETWEEN_B ? 1 : 0) ;
+        /* 处于近平面与远平面之间顶点个数  
+		*/
+		int inNum 
+			= (vCode[0]&BETWEEN_B ? 1 : 0) +
+			  (vCode[1]&BETWEEN_B ? 1 : 0) +
+			  (vCode[2]&BETWEEN_B ? 1 : 0) ;
 
         if(inNum == 1){
             // 1 sort
@@ -622,11 +594,12 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
             // 1        2 out
             */
             //2 clip
-            unsigned channels = vt.vAttr_->channels();
-            // 通过插值求交点保存在 index1 中 更新index1
-            assemblyV.intersectionPoint(channels,1,1,0,znear);
-            // 通过插值求交点保存在 index2 中 更新index2
-            assemblyV.intersectionPoint(channels,2,2,0,znear);
+            /* 通过插值求交点保存在 index1 中 更新index1 
+			*/
+            assemblyV.intersectionPoint(1,1,0,znear);
+            /* 通过插值求交点保存在 index2 中 更新index2 
+			*/
+            assemblyV.intersectionPoint(2,2,0,znear);
             return 3;
         }
         else if(inNum == 2){
@@ -661,13 +634,14 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
             */
 
             // add new Vertex
-            assemblyV.newVertex1(0,vt.vAttr_->bytes());
+            assemblyV.newVertex1(0);
             //2 clip
-            unsigned channels = vt.vAttr_->channels();
-            // 通过插值求交点保存在 index1 中 更新index1
-            assemblyV.intersectionPoint(channels,0,0,1,znear);
-            // 通过插值求交点保存在 index2 中 更新index2
-            assemblyV.intersectionPoint(channels,3,3,2,znear);
+            /* 通过插值求交点保存在 index1 中 更新index1
+            */
+            assemblyV.intersectionPoint(0,0,1,znear);
+            /* 通过插值求交点保存在 index3 中 更新index3
+            */
+            assemblyV.intersectionPoint(3,3,2,znear);
             return 4;
         }
     }
@@ -677,24 +651,13 @@ int PipeLine::clipTriangleInClipSpace(VertexTransform& vt){
 
 
 void PipeLine::outlet(void){
-
     uniforms_->wpvMatrix_ = viewfrustum_.getProjectionViewMatrix() * worldTransform_.getHMatrix() ;
-
-    static VertexTransform  primitive;
     // each mesh
     for(auto m : meshs_){
         // each vertex
-        primitive.vAttr_    = m->va_.get();
-        primitive.stride_   = m->stride();
-        primitive.inxSize_  = m->vi_ ? m->vi_->inxSize() : 0;
-        primitive.inxCnt_   = m->vi_ ? m->vi_->numOfIndices : 0;
-        primitive.inx_      = m->getIndexPtr();
-        primitive.inBuf_    = m->getVertexPtr(0);
-        primitive.outBuf_   = m->getCacheVerPtr(0);
-        primitive.vertexCnt_= m->vertexCnt_;
-
-        vShader_(primitive,uniforms_,registers_);
-        (this->*drawFunction_[m->primType_])(primitive);
+        curMesh_ = m;
+        vShader_(m,uniforms_,registers_);
+        (this->*drawFunction_[m->primType_])();
     }
 }
 

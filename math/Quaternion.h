@@ -6,7 +6,7 @@
 
 // x,y,z,w   q = x*i + y*j + z*k + w
 typedef Float4 Quaternion;
-inline float angle(const Quaternion&normalizedA , const Quaternion&normalizedB){
+inline float angleQuat(const Quaternion&normalizedA , const Quaternion&normalizedB){
     assert(equal(normalizedA.length(),1.0f));
     assert(equal(normalizedB.length(),1.0f));
     return acos(normalizedB.dot(normalizedA));
@@ -41,7 +41,7 @@ inline Float3 axisQuat(const Quaternion& q){
     return Float3{1.0f,0,0};
 }
 
-inline Quaternion operator * (const Quaternion& q , const Quaternion& p) {
+inline Quaternion operator*(const Quaternion& q , const Quaternion& p) {
     // Multiplication of quaternions.  This operation is not generally
     // commutative; that is, q0*q1 and q1*q0 are not usually the same value.
     // (x0*i + y0*j + z0*k + w0)*(x1*i + y1*j + z1*k + w1) =
@@ -76,21 +76,21 @@ inline Quaternion inverse(Quaternion const& q) {
 
 
 inline Float3 rotate(Quaternion const&q,Float3 const& v){
-    Float4 u = q*Float4(v.x,v.y,v.z,0)*conjugate(q);
+    Float4 u = q * Float4(v.x,v.y,v.z,0) * conjugate(q);
     return Float3(u.x,u.y,u.z);
 }
 
 // Rotate a vector using quaternion multiplication.  The input quaternion must
 // be unit length.
 inline Float4 rotate(Quaternion const& q, Float4 const& v){
-    Float4 u = q*v*conjugate(q);
+    Float4 u = q * v * conjugate(q);
     // Zero-out the w-component in remove numerical round-off error.
     u.w = 0;
     return u;
 }
 
-template<>
-inline Quaternion lerp(const Quaternion& q1,const Quaternion&q2,float ratio){
+
+inline Quaternion lerpQuat(const Quaternion& q1,const Quaternion&q2,float ratio){
     return (q1 + (q2- q1) * ratio).normalize();
 }
 

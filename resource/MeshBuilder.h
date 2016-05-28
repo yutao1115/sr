@@ -14,8 +14,9 @@ public:
     MeshBuilder():va_(std::make_shared<VertexAttr>()),
                   vi_(std::make_shared<IndexAttr>()){}
 
-    bool addAttr(VASemantic se,unsigned int size){
-        return va_->add(se,size);
+    template<class T>
+    bool addAttr(VASemantic se){
+        return va_->add<T>(se);
     }
 
     MeshPtr createMesh(uint32_t numOfVertices,
@@ -38,7 +39,7 @@ public:
 
 private:
     std::shared_ptr<VertexAttr>  va_;
-    std::shared_ptr<IndexAttr> vi_;
+    std::shared_ptr<IndexAttr>   vi_;
 };
 
 

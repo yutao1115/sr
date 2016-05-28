@@ -69,9 +69,9 @@ TEST(Quaternion,Rotation){
 }
 
 TEST(Quaternion,Angle){
-    float a1 = angle(Quaternion(1.0f, 2.0f, -3.0f, -4.0f).normalize(),
+    float a1 = angleQuat(Quaternion(1.0f, 2.0f, -3.0f, -4.0f).normalize(),
                      Quaternion(4.0f, -3.0f, 2.0f, -1.0f).normalize());
-    float a2 = angle(Quaternion(1.0f, 2.0f, -3.0f, -4.0f).normalize(),
+    float a2 = angleQuat(Quaternion(1.0f, 2.0f, -3.0f, -4.0f).normalize(),
                      Quaternion(4.0f, -3.0f, 2.0f, -1.0f).normalize());
     EXPECT_FLOAT_EQ(a2,a1);
     EXPECT_FLOAT_EQ(a1,1.704528f);
@@ -99,7 +99,7 @@ TEST(Quaternion,lerp){
     AxisAngle3 a2({1,0,0},degToRad(23.0f));
     Quaternion q1;Rotation::convert(a1,q1);
     Quaternion q2;Rotation::convert(a2,q2);
-    Quaternion r1 = lerp(q1, q2, 0.35f);
+    Quaternion r1 = lerpQuat(q1, q2, 0.35f);
     cout<<"q1:"<<q1.x<<","<<q1.y<<","<<q1.z<<","<<q1.w<<endl;
     cout<<"q2:"<<q2.x<<","<<q2.y<<","<<q2.z<<","<<q2.w<<endl;
     cout<<"==="<<r1.x<<" "<<r1.y<<" "<<r1.z<<" "<<r1.w<<endl;

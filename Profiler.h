@@ -13,7 +13,7 @@
 
 #pragma once
 
-#ifndef WIN32   // Windows system specific
+#ifndef _WIN32   // Windows system specific
 #include <sys/time.h>
 #endif
 
@@ -38,7 +38,7 @@ private:
     double endTimeInMicroSec;                   // ending time in micro-second
     int    stopped;                             // stop flag 
     
-#ifdef WIN32
+#ifdef _WIN32
     int64_t frequency;                    // ticks per second
     int64_t startCount;                         //
     int64_t endCount;                           //    
