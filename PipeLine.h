@@ -113,11 +113,10 @@ private:
 
     void drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth=0);
     int  clipTriangleInClipSpace(void);
-    void toScreen(ClonedVertex* v) const ;
     bool clipLine(int &x1,int &y1,int &x2, int &y2);
     void rasterizeTri(int i1,int i2,int i3);
     void renderTrapezoid(const RasTrapezoid* trap);
-    void trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3,bool recursive=false);
+    void trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3);
 
     void fillPoint(int x,int y,uint32_t color,uint32_t depth=0){
         fbo_.set(x,y,color,depth);
@@ -162,20 +161,5 @@ inline void PipeLine::setCullState(FrontMode fr,CullMode cm){
     }
     else cullSignAdjust_ = 0;
 }
-
-
-inline void PipeLine::toScreen(ClonedVertex* v) const {
-    // Transforming a view space point (vx, vy, vz, 1) into clip space looks like this:
-    //|sx  0  0  0||vx|   |sx * vx     |
-    //| 0 sy  0  0||vy| = |sx * vy     |
-    //| 0  0 sz tz||vz|   |sz * vz + tz|
-    //| 0  0 -1  0|| 1|   |-vz         |
-    // The corresponding NCD values are computed as follows:
-    //|nx|   | (sx * vx)      / -vz |
-    //|nx| = | (sy * vy)      / -vz |
-    //|nz|   | (sz * vz + tz) / -vz |
-
-    // Clip space TO screen space
-    v->toScreen(uniforms_->viewPort_);
-}
+ 
 

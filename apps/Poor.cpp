@@ -31,7 +31,6 @@ int main()
     WindowInput::OnKey =[](unsigned char key, int x, int y){
         auto& camera = pipeline->getCamera();
         auto& world  = pipeline->getTransform();
-        
         switch(key){
         case 'i': camera.up();break;
         case 'k': camera.down();break;
@@ -60,7 +59,7 @@ int main()
             if(key=='f')    roateAngle += PiOver180;
             else  roateAngle -= PiOver180;
             if(roateAngle>TwoPi) roateAngle=0;}break;
-        case 'c': 
+        case 'c':
             pipeline->cullStateEnabled_  = !pipeline->cullStateEnabled_  ;
             break;
         default:
@@ -75,7 +74,7 @@ int main()
 bool Poor::createWorld(void) {
     MeshBuilder builder;
     builder.addAttr<Float4>(VASemantic::POSITION);
-    
+
     struct RGB{float R;float G;float B;};
     builder.addAttr<RGB>(VASemantic::COLOR0);
     /*
@@ -198,14 +197,11 @@ bool Poor::createWorld(void) {
     };
     */
     static MeshBuilder::MeshPtr mesh =  builder.createMesh(8,36);//(8,36)
-    AlgoManager<Interpolat>::instance().registerMesh(mesh.get());
+    AlgoManager<IBase>::instance().registerMesh(mesh.get());
     AlgoManager<IScanline>::instance().registerMesh(mesh.get());
-    Interpolat* l  = AlgoManager<Interpolat>::instance().get(mesh.get());
+    IBase* l  = AlgoManager<IBase>::instance().get(mesh.get());
     IScanline* is  = AlgoManager<IScanline>::instance().get(mesh.get());
-    *l=[](void* result,void*v1,void*v2,float t){
-        float* r  = (float*)result; 
-        float* p1 = (float*)v1;
-        float* p2 = (float*)v2;
+    l->interpolat_=[](float* r,float*p1,float*p2,float t){
         //R
         *r = lerp(*p1, *p2, t); ++r;++p1;++p2;
         //G
@@ -213,31 +209,38 @@ bool Poor::createWorld(void) {
         //B
         *r = lerp(*p1, *p2, t);
     };
-    is->lineInit_ = [](void* result,void*v1,void*v2,float t){
-        float* r  = (float*)result; 
-        float* lhs = (float*)v1;
-        float* rhs = (float*)v2;
+    l->perspectiveDiv_=[](float* p,float invw){
+        /*
+        转到 1/z 透视除法
+        */
+        //R
+        *p = *p * invw; ++p;
+        //G
+        *p = *p * invw; ++p;
+        //B
+        *p = *p * invw;
+    };
+    
+    is->lineInit_ = [](float* r,float*lhs,float*rhs,float t){
         *r  = (*rhs  - *lhs)  * t;++r;++rhs;++lhs;
         *r  = (*rhs  - *lhs)  * t;++r;++rhs;++lhs;
         *r  = (*rhs  - *lhs)  * t;
     };
-    is->stepAdd_ = [](void* result,void*step){
-        float* r  = (float*)result; 
-        float* s = (float*)step;
+    is->stepAdd_ = [](float* r,float*s){
         *r  += *s;++r;++s;
         *r  += *s;++r;++s;
         *r  += *s;
     };
-    is->pixelColor_=[](ClonedVertex& v,uint32_t*t){
-        int R = (int)(*v.leftChannels * 255.0f);
-		int G = (int)(*(v.leftChannels+1) * 255.0f);
-		int B = (int)(*(v.leftChannels+2) * 255.0f);
+    is->pixelColor_=[](ClonedVertex& v,float w,uint32_t*t){
+        int R = (int)(*v.leftChannels    * v.coord.w * 255.0f);
+		int G = (int)(*(v.leftChannels+1)* v.coord.w * 255.0f);
+		int B = (int)(*(v.leftChannels+2)* v.coord.w * 255.0f);
 		R = clamp(R, 0, 255);
 		G = clamp(G, 0, 255);
 		B = clamp(B, 0, 255);
 		*t = (R << 16) | (G << 8) | (B);
     };
-  
+
  uint16_t indices[] = {  // Note that we start from 0!
         // 前
         1, 3, 0,
@@ -263,7 +266,7 @@ bool Poor::createWorld(void) {
         7, 0, 3,
         4, 0, 7,
     };
-    static float vvv[]={ 
+    static float vvv[]={
                            1, -1,  1, 1 ,1.0f, 0.2f, 0.2f, //0
                           -1, -1,  1, 1 ,0.2f, 1.0f, 0.2f, //1
                           -1,  1,  1, 1 ,0.2f, 0.2f, 1.0f, //2
@@ -272,8 +275,8 @@ bool Poor::createWorld(void) {
                           -1, -1, -1, 1 ,0.2f, 1.0f, 1.0f, //5
                           -1,  1, -1, 1 ,1.0f, 0.3f, 0.3f, //6
                            1,  1, -1, 1 ,0.2f, 1.0f, 0.3f, //7
-                        }; 
-     
+                        };
+
     MeshVertexSeqIn mva(*mesh);
     mva.streamCopy(vvv,sizeof(vvv));
     memcpy(mesh->getIndexPtr16(),indices,36*sizeof(uint16_t));

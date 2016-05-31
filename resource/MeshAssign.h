@@ -53,7 +53,7 @@ struct MeshVertexSeqIn{
     template <typename... Ts>
     void append(Ts ...args){
         if (dst_ < endp_) {
-            meshAssign(mesh_, index++, std::move(args)...);
+            meshAssign(mesh_, index_++, std::move(args)...);
             dst_ += mesh_.stride();
         }
     }

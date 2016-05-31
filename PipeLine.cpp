@@ -344,9 +344,9 @@ void PipeLine::drawLine(int x1,int y1,int x2,int y2,uint32_t c,uint32_t depth){
 
 void PipeLine::scanlineAlgo(const RasTrapezoid* trap){
     IScanline*  i = AlgoManager<IScanline>::instance().get(curMesh_);
-    Interpolat* l = AlgoManager<Interpolat>::instance().get(curMesh_);
+    IBase* l = AlgoManager<IBase>::instance().get(curMesh_);
     assert(i != nullptr);
-    ScanlineAlgo{ *trap,fbo_,*i,*l };
+    ScanlineAlgo{ *trap,fbo_,*i,l->interpolat_};
 }
 
 void PipeLine::renderTrapezoid(const RasTrapezoid* trap){
@@ -354,12 +354,11 @@ void PipeLine::renderTrapezoid(const RasTrapezoid* trap){
     (this->*rasterAlgo_[algo_])(trap);
 }
 
-void PipeLine::trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3,
-                                bool recursive/*=false*/){
+void PipeLine::trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3){
 
     if ( equal( f1->coord.y , f2->coord.y ) ){
         /*
-        // 平顶三角  triangle down
+        // triangle down
         // 2 ____1   1___2
         //   \  |    |  /
         //    \ |    | /
@@ -385,7 +384,7 @@ void PipeLine::trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3,
         //     /|   |\
         //    / |   | \
         // 2 /  |3  |3 \2
-        // ----    ----
+        //  ----    ----
         */
         if( f2->coord.x > f3->coord.x) std::swap(f2,f3);
         /*
@@ -400,24 +399,40 @@ void PipeLine::trapezoidization(ClonedVertex*f1,ClonedVertex*f2,ClonedVertex*f3,
         renderTrapezoid(&trap);
     }
     else{
+        auto k = (f3->coord.y - f1->coord.y) / (f2->coord.y - f1->coord.y);
+        auto x3 = f1->coord.x + (f2->coord.x - f1->coord.x) * k;
+        if(x3 <= f3->coord.x){
         /*
         //      1
         //     /|
         //    / |
-        // 2 /__|4
+        // 2 /__|
         //   \  |
         //    \ |
         //     \|
         //     3
         */
-        // 精度问题到达这里 ???
-        if(recursive) return;
-        assemblyV.newVertex2(f2);
-        ClonedVertex* f4 = assemblyV.orderV(VerticesAssembly::TRAPEZOIDCLIP);
-        float ratio = (f2->coord.y - f1->coord.y) / (f3->coord.y - f1->coord.y);
-        assemblyV.intersectionPoint(*f4,*f1,*f3,ratio);
-        trapezoidization(f1,f2,f4,true);
-        trapezoidization(f2,f4,f3,true);
+        RasTrapezoid trap1{f1,f2,f1,f3,f1->coord.y,f2->coord.y};
+        renderTrapezoid(&trap1);
+        RasTrapezoid trap2{f2,f3,f1,f3,f2->coord.y,f3->coord.y};
+        renderTrapezoid(&trap2);
+        }
+        else{
+        /*
+        // 1
+        // |\
+        // | \
+        // |__\ 2
+        // |  /
+        // | /
+        // |/
+        // 3
+        */
+        RasTrapezoid trap1{f1,f3,f1,f2,f1->coord.y,f2->coord.y};
+        renderTrapezoid(&trap1);
+        RasTrapezoid trap2{f1,f3,f2,f3,f2->coord.y,f3->coord.y};
+        renderTrapezoid(&trap2);
+        }
     }
 }
 
@@ -426,10 +441,7 @@ void PipeLine::rasterizeTri(int i1,int i2,int i3){
     ClonedVertex* c1 = assemblyV.orderV(i1);
     ClonedVertex* c2 = assemblyV.orderV(i2);
     ClonedVertex* c3 = assemblyV.orderV(i3);
-    toScreen(c1);
-    toScreen(c2);
-    toScreen(c3);
-
+    
 
     /*
     // sort , like this
@@ -473,17 +485,24 @@ void PipeLine::drawTriMesh(void){
         if( cullStateEnabled_ && backFaceCull(*f1,*f2,*f3) )
             continue;
 
-        assemblyV.init(curMesh_);
+        assemblyV.reset();
         assemblyV.clone(f1,0);
         assemblyV.clone(f2,1);
         assemblyV.clone(f3,2);
 
-        // viewport clip
+        // clip in clipspace lerp 
+        /*
+           剪裁空间内插值求交点 不需要透视矫正
+        */
         int ret = clipTriangleInClipSpace();
         if(ret == 3){
+            // Clip space TO screen space
+            assemblyV.toScreen(uniforms_->viewPort_,assemblyV.NOTRICLIP);
             rasterizeTri(0,1,2);
         }
         else if(ret == 4){
+            // Clip space TO screen space
+            assemblyV.toScreen(uniforms_->viewPort_,assemblyV.TRICLIPED);
             rasterizeTri(0,1,2);
             rasterizeTri(3,0,2);
         }
@@ -634,7 +653,7 @@ int PipeLine::clipTriangleInClipSpace(void){
             */
 
             // add new Vertex
-            assemblyV.newVertex1(0);
+            assemblyV.newVertex(0);
             //2 clip
             /* 通过插值求交点保存在 index1 中 更新index1
             */
@@ -651,11 +670,21 @@ int PipeLine::clipTriangleInClipSpace(void){
 
 
 void PipeLine::outlet(void){
+    // Transforming a view space point (vx, vy, vz, 1) into clip space looks like this:
+    //|sx  0  0  0||vx|   |sx * vx     |
+    //| 0 sy  0  0||vy| = |sx * vy     |
+    //| 0  0 sz tz||vz|   |sz * vz + tz|
+    //| 0  0 -1  0|| 1|   |-vz         |
+    // The corresponding NCD values are computed as follows:
+    //|nx|   | (sx * vx)      / -vz |
+    //|nx| = | (sy * vy)      / -vz |
+    //|nz|   | (sz * vz + tz) / -vz |
     uniforms_->wpvMatrix_ = viewfrustum_.getProjectionViewMatrix() * worldTransform_.getHMatrix() ;
     // each mesh
     for(auto m : meshs_){
         // each vertex
         curMesh_ = m;
+        assemblyV.init(m);
         vShader_(m,uniforms_,registers_);
         (this->*drawFunction_[m->primType_])();
     }

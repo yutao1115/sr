@@ -38,6 +38,6 @@ private:
     std::unordered_map<Mesh*,IAgo*> algoMap_;
     std::vector<IAgo> alogs_;
 };
-extern template class AlgoManager<Interpolat>;
+extern template class AlgoManager<IBase>;
 extern template class AlgoManager<IScanline>;
 
